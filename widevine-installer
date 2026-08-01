@@ -7,17 +7,16 @@ set -e
 : ${COPY_CONFIGS=1}
 : ${DESTDIR:=/}
 : ${CONFDIR:=/etc}
-: ${LIBDIR:=/usr/lib64}
+: ${LIBDIR:=/usr/lib}
 : ${BINDIR:=/usr/bin}
 : ${LIBEXECDIR:=/usr/libexec}
 : ${STATEDIR:=/var/lib}
 : ${ENVIRONMENTDIR:=/usr/lib/environment.d}
 : ${SCRIPT_BASE:=$LIBEXECDIR/widevine-installer}
 : ${INSTALL_BASE:=$STATEDIR/widevine}
-: ${DISTFILES_BASE:=https://commondatastorage.googleapis.com/chromeos-localmirror/distfiles}
-: ${LACROS_NAME:=chromeos-lacros-arm64-squash-zstd}
-: ${LACROS_VERSION:=120.0.6098.0}
-: ${WIDEVINE_VERSION:=4.10.2662.3}
+: ${DISTFILES_BASE:=https://dl.google.com/linux/direct}
+: ${CHROME_NAME:=google-chrome-stable_current_arm64.deb}
+: ${WIDEVINE_VERSION:=4.10.3057.0}
 : ${CHROME_WIDEVINE_BASE:=$LIBDIR/chromium-browser}
 : ${MOZ_PREF_BASE:=$LIBDIR/firefox/defaults/pref}
 
@@ -57,18 +56,6 @@ if [ "$(whoami)" != "root" ]; then
     exit 1
 fi
 
-verchk() {
-    (
-        echo "2.36"
-        ldd --version | head -1 | cut -d" " -f4
-    ) | sort -CV
-}
-
-if ! verchk; then
-    echo "Your glibc version is too old. Widevine requires glibc 2.36 or newer."
-    exit 1
-fi
-
 echo "This script will download, adapt, and install a copy of the Widevine"
 echo "Content Decryption Module for aarch64 systems."
 echo
@@ -96,33 +83,35 @@ workdir="$(mktemp -d /tmp/widevine-installer.XXXXXXXX)"
 
 cd "$workdir"
 
-echo "Downloading LaCrOS (Chrome) image..."
-URL="$DISTFILES_BASE/$LACROS_NAME-$LACROS_VERSION"
+echo "Downloading Chrome arm64 image..."
+URL="$DISTFILES_BASE/$CHROME_NAME"
 echo "URL: $URL"
-curl -# -o lacros.squashfs "$URL"
+curl -# -o chrome.deb "$URL"
 
 echo
 echo "Extracting Widevine..."
-unsquashfs -q lacros.squashfs 'WidevineCdm/*'
+ar -x chrome.deb
+tar -xf data.tar.xz ./opt/google/chrome/WidevineCdm
 
 echo
 echo "The Widevine license agreement follows:"
 echo
 echo ===================================================================================
-cat squashfs-root/WidevineCdm/LICENSE
+cat opt/google/chrome/WidevineCdm/LICENSE
 echo ===================================================================================
 echo
 echo "Press enter to proceed, or Ctrl-C to cancel."
 read dummy
 
-python3 "$SCRIPT_BASE/widevine_fixup.py" squashfs-root/WidevineCdm/_platform_specific/cros_arm64/libwidevinecdm.so libwidevinecdm.so
+# Shouldn't be needed with the Ubuntu Chrome version
+python3 "$SCRIPT_BASE/widevine_fixup.py" opt/google/chrome/WidevineCdm/_platform_specific/linux_arm64/libwidevinecdm.so libwidevinecdm.so
 
 echo
 echo "Installing..."
 install -d -m 0755 "$INSTALL_BASE"
 install -p -m 0755 -t "$INSTALL_BASE" libwidevinecdm.so
-install -p -m 0644 -t "$INSTALL_BASE" squashfs-root/WidevineCdm/manifest.json
-install -p -m 0644 -t "$INSTALL_BASE" squashfs-root/WidevineCdm/LICENSE
+install -p -m 0644 -t "$INSTALL_BASE" opt/google/chrome/WidevineCdm/manifest.json
+install -p -m 0644 -t "$INSTALL_BASE" opt/google/chrome/WidevineCdm/LICENSE
 
 echo "Setting up plugin for Firefox and Chromium-based browsers..."
 mkdir -p "$INSTALL_BASE"/gmp-widevinecdm/system-installed
