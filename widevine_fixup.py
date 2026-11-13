@@ -353,6 +353,20 @@ for i in range(0, dynamic.sh_size, dynamic.sh_entsize):
         dynstr.sh_size = (inject_addr - dynstr.sh_offset) + len(PATH_TO_INJECT) + 1
 """
 
+rela_dyn = shdr_by_name[b".rela.dyn"]
+ifunctype = ctypes.CFUNCTYPE(ctypes.c_ulonglong, ctypes.c_void_p)
+with open(args[0], "rb") as f:
+  with mmap.mmap(f.fileno(), 0, flags=mmap.MAP_PRIVATE, prot=mmap.PROT_READ|mmap.PROT_EXEC|mmap.PROT_WRITE) as map:
+    map_addr = ctypes.addressof(ctypes.c_void_p.from_buffer(map))
+    for i in range(0, rela_dyn.sh_size, rela_dyn.sh_entsize):
+        rela = Elf64_Rela.from_buffer(memoryview(elf)[rela_dyn.sh_offset + i:])
+        if rela.r_type == 1032: # R_AARCH64_IRELATIVE
+          log(f"  Resolve ifunc {rela.r_addend:08x}")
+          ifunc = ifunctype(map_addr + (rela.r_addend*2 - adjust_offset(rela.r_addend)))
+          # FIXME the native code should be run in a sandbox/emulator
+          rela.r_addend = adjust_offset(ifunc(0, None) - map_addr)
+          rela.r_type = 1027
+
 rela_plt = shdr_by_name[b".rela.plt"]
 for i in range(0, rela_plt.sh_size, rela_plt.sh_entsize):
     rela = Elf64_Rela.from_buffer(memoryview(elf)[rela_plt.sh_offset + i:])
